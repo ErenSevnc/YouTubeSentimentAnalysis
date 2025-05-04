@@ -2,27 +2,70 @@
 <html>
 <head>
     <title>YouTube Yorum Analizi</title>
+    <meta charset="UTF-8"> <!-- Specify character encoding -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- Responsive viewport -->
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1 { color: #ff0000; text-align: center; }
-        .form-container { background: #f9f9f9; padding: 20px; border-radius: 8px; }
-        label { display: block; margin-top: 15px; font-weight: bold; }
-        input[type="text"] { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; background-color: #f4f4f4; line-height: 1.6; }
+        h1 { color: #c4302b; text-align: center; border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; } /* YouTube Red */
+        .form-container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 30px; }
+        label { display: block; margin-top: 15px; margin-bottom: 5px; font-weight: bold; color: #333; }
+        input[type="text"], input[type="url"] {
+            width: 100%;
+            padding: 12px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
         button {
             background: #ff0000; color: white; border: none;
-            padding: 12px 20px; margin-top: 20px; cursor: pointer;
-            font-size: 16px; border-radius: 4px; width: 100%;
+            padding: 12px 20px; margin-top: 25px; cursor: pointer;
+            font-size: 1.1rem; border-radius: 4px; width: 100%;
+            transition: background-color 0.3s ease;
+            font-weight: bold;
         }
-        .results { margin-top: 30px; padding: 20px; background: #f0f0f0; border-radius: 8px; display: none; }
-        .loading { text-align: center; margin: 20px 0; display: none; }
-        .error { color: red; margin-top: 20px; }
+        button:hover:not(:disabled) { background: #c4302b; } /* Darker red on hover */
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .results { margin-top: 30px; padding: 20px; background: #fff; border-radius: 8px; display: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .results h2 { color: #333; margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px;}
+        .results p { margin: 12px 0; color: #555; font-size: 1rem; }
+        .results strong { color: #333; }
+        .results h3 { margin-top: 20px; color: #333; font-style: italic; text-align: center; padding: 10px; background-color: #f0f0f0; border-radius: 4px; }
+        .loading { text-align: center; margin: 30px 0; display: none; }
+        .loading p { font-size: 1.1em; color: #555; margin-bottom: 15px;}
+        .spinner {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #ff0000; /* Red */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px auto; /* Center spinner */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error { color: #D8000C; background-color: #FFD2D2; border: 1px solid #D8000C; padding: 15px; margin: 20px 0; border-radius: 4px; display: none; /* Hide by default */ }
         .progress-bar {
-            height: 20px; background: #e0e0e0; border-radius: 10px;
-            margin-top: 20px; overflow: hidden;
+            height: 12px; background: #e0e0e0; border-radius: 6px;
+            margin-top: 10px; overflow: hidden; display: none; /* Hide initially */
+            width: 80%; /* Make progress bar slightly narrower */
+            margin-left: auto;
+            margin-right: auto;
         }
         .progress {
             height: 100%; background: #ff0000; width: 0%;
-            transition: width 0.3s; text-align: center; color: white;
+            transition: width 0.4s ease-out; text-align: center; color: white;
+            font-size: 0.7em; line-height: 12px; /* Match height */
+            font-weight: bold;
+            display: flex; /* For centering text if needed */
+            align-items: center;
+            justify-content: center;
         }
     </style>
 </head>
@@ -30,24 +73,31 @@
     <h1>YouTube Yorum Analiz Sistemi</h1>
 
     <div class="form-container">
-        <form id="analysisForm" method="POST">
+        <!-- Server-side validation errors (if Flask rendered with error) - Less likely now -->
+        {% if error %}
+            <div class="error" style="display: block;">{{ error }}</div>
+        {% endif %}
+
+        <form id="analysisForm">
             <label for="api_key">YouTube API Key:</label>
-            <input type="text" id="api_key" name="api_key" required
-                   placeholder="AIzaSyD... (YouTube Data API v3 anahtarınız)">
+            <input type="text" id="api_key" name="api_key" required placeholder="AIzaSy... (YouTube Data API v3 key)">
 
             <label for="youtube_url">YouTube Video URL:</label>
-            <input type="text" id="youtube_url" name="youtube_url" required
-                   placeholder="https://www.youtube.com/watch?v=...">
+            <input type="url" id="youtube_url" name="youtube_url" required placeholder="https://www.youtube.com/watch?v=...">
 
-            <button type="submit">Analiz Başlat</button>
+            <!-- NO hidden input needed anymore -->
+
+            <button type="submit" id="submitButton">Analiz Başlat</button>
         </form>
     </div>
 
     <div class="loading" id="loadingIndicator">
-        <p>Yorumlar analiz ediliyor, lütfen bekleyin...</p>
-        <div class="progress-bar">
-            <div class="progress" id="progressBar">0%</div>
+        <p id="loadingStatus">Analiz başlatılıyor...</p>
+        <div class="spinner"></div>
+        <div class="progress-bar" id="progressBarContainer">
+             <div class="progress" id="progressBar">0%</div>
         </div>
+        <p><small>(Bu işlem yorum sayısına bağlı olarak birkaç dakika sürebilir)</small></p>
     </div>
 
     <div class="results" id="resultsContainer">
@@ -58,68 +108,212 @@
     <div class="error" id="errorContainer"></div>
 
     <script>
-        document.getElementById('analysisForm').addEventListener('submit', function(e) {
-            e.preventDefault();
+        document.addEventListener('DOMContentLoaded', () => {
 
-            // Formu göster ve yükleme göstergesini aç
-            document.getElementById('loadingIndicator').style.display = 'block';
-            document.getElementById('resultsContainer').style.display = 'none';
-            document.getElementById('errorContainer').textContent = '';
+            // Get references to DOM elements
+            const analysisForm = document.getElementById('analysisForm');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const loadingStatus = document.getElementById('loadingStatus');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const errorContainer = document.getElementById('errorContainer');
+            const resultsContent = document.getElementById('resultsContent');
+            const submitButton = document.getElementById('submitButton');
+            const progressBarContainer = document.getElementById('progressBarContainer');
+            const progressBar = document.getElementById('progressBar');
 
-            // Form verilerini gönder
-            fetch('/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams(new FormData(document.getElementById('analysisForm')))
-            })
-            .then(response => {
-                // Analiz başladı, sonuçları kontrol etmeye başla
-                checkResults();
-            })
-            .catch(error => {
-                document.getElementById('errorContainer').textContent = 'Hata oluştu: ' + error;
-                document.getElementById('loadingIndicator').style.display = 'none';
-            });
-        });
+            let currentTaskId = null;
+            let pollIntervalId = null;
 
-        function checkResults() {
-            // Sonuçları kontrol et
-            fetch('/results')
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    // Hata durumu
-                    document.getElementById('errorContainer').textContent = data.error;
-                    document.getElementById('loadingIndicator').style.display = 'none';
-                } else if (data.status === 'completed') {
-                    // Analiz tamamlandı
-                    document.getElementById('loadingIndicator').style.display = 'none';
-                    document.getElementById('resultsContainer').style.display = 'block';
+            // --- Helper Functions ---
+            function showError(message) {
+                console.error("Error displayed:", message); // Log error for debugging
+                loadingIndicator.style.display = 'none';
+                resultsContainer.style.display = 'none';
+                errorContainer.textContent = message || 'Bilinmeyen bir hata oluştu.';
+                errorContainer.style.display = 'block';
+                progressBarContainer.style.display = 'none';
+            }
 
-                    // Sonuçları göster
-                    const resultsContent = document.getElementById('resultsContent');
-                    resultsContent.innerHTML = `
-                        <p><strong>Analiz Edilen Yorum Sayısı:</strong> ${data.total_comments}</p>
-                        <p><strong>Olumlu Yorumlar:</strong> ${data.positive} (${Math.round(data.positive/data.total_comments*100)}%)</p>
-                        <p><strong>Olumsuz Yorumlar:</strong> ${data.negative} (${Math.round(data.negative/data.total_comments*100)}%)</p>
-                        <p><strong>Nötr Yorumlar:</strong> ${data.neutral} (${Math.round(data.neutral/data.total_comments*100)}%)</p>
-                        <h3>${data.verdict}</h3>
-                    `;
-                } else {
-                    // Analiz devam ediyor, ilerlemeyi güncelle
-                    const progress = document.getElementById('progressBar');
-                    const currentWidth = parseInt(progress.style.width) || 0;
-                    const newWidth = Math.min(currentWidth + 10, 90);
-                    progress.style.width = newWidth + '%';
-                    progress.textContent = newWidth + '%';
-
-                    // 2 saniye sonra tekrar kontrol et
-                    setTimeout(checkResults, 2000);
+            function clearPreviousState() {
+                if (pollIntervalId) {
+                    clearInterval(pollIntervalId);
+                    pollIntervalId = null;
                 }
-            });
-        }
+                resultsContainer.style.display = 'none';
+                errorContainer.style.display = 'none';
+                loadingIndicator.style.display = 'none';
+                progressBarContainer.style.display = 'none';
+                resultsContent.innerHTML = '';
+                errorContainer.textContent = '';
+                progressBar.style.width = '0%'; // Reset progress bar visually
+                progressBar.textContent = '0%';
+                currentTaskId = null;
+            }
+
+            function resetUI() {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Analiz Başlat';
+            }
+
+            function displayResults(data) {
+                 resultsContainer.style.display = 'block';
+                 errorContainer.style.display = 'none';
+
+                 const total = data.total_comments ?? 0; // Use nullish coalescing for safety
+                 const positive = data.positive ?? 0;
+                 const negative = data.negative ?? 0;
+                 const neutral = data.neutral ?? 0;
+
+                 const posPercent = total > 0 ? Math.round(positive / total * 100) : 0;
+                 const negPercent = total > 0 ? Math.round(negative / total * 100) : 0;
+                 const neuPercent = total > 0 ? Math.round(neutral / total * 100) : 0;
+
+                 const originalFetchedText = (data.original_fetched !== undefined && data.original_fetched !== total)
+                    ? `<p><small>(Toplam ${data.original_fetched} yorum bulundu, ${data.original_fetched - total} tanesi analiz için uygun değildi/filtrelendi.)</small></p>`
+                    : '';
+
+                 resultsContent.innerHTML = `
+                    <p><strong>Analiz Edilen Yorum Sayısı:</strong> ${total}</p>
+                    ${originalFetchedText}
+                    <p style="color: #28a745;"><strong>Olumlu Yorumlar:</strong> ${positive} (${posPercent}%)</p> <!-- Green -->
+                    <p style="color: #dc3545;"><strong>Olumsuz Yorumlar:</strong> ${negative} (${negPercent}%)</p> <!-- Red -->
+                    <p style="color: #6c757d;"><strong>Nötr Yorumlar:</strong> ${neutral} (${neuPercent}%)</p> <!-- Grey -->
+                    <h3>${data.verdict || 'Sonuç belirlenemedi.'}</h3>
+                `;
+            }
+
+             function pollResults(taskId) {
+                if (!taskId) {
+                    showError("Polling error: Geçersiz Görev ID'si.");
+                    resetUI();
+                    return;
+                }
+
+                if (pollIntervalId) clearInterval(pollIntervalId); // Clear just in case
+
+                console.log(`Polling started for task ID: ${taskId}`);
+
+                pollIntervalId = setInterval(() => {
+                    fetch(`/results/${taskId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            // Try to get error details from JSON body if possible
+                            return response.json().catch(() => null).then(errData => {
+                                const errorMsg = errData?.error || `Sunucu hatası: ${response.status}`;
+                                if (response.status === 404) throw new Error('Analiz görevi bulunamadı (404).');
+                                throw new Error(errorMsg);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Poll response:', data);
+
+                        if (!data || !data.status) throw new Error("Sunucudan geçersiz yanıt alındı.");
+
+                        // Update progress bar
+                        if (data.progress !== undefined) {
+                             const progress = Math.max(0, Math.min(100, parseInt(data.progress, 10) || 0));
+                             progressBar.style.width = progress + '%';
+                             progressBar.textContent = progress + '%';
+                        }
+
+                        // Handle different task statuses
+                        switch (data.status) {
+                            case 'completed':
+                                clearInterval(pollIntervalId); pollIntervalId = null;
+                                loadingIndicator.style.display = 'none';
+                                displayResults(data);
+                                resetUI();
+                                break;
+                            case 'error':
+                                clearInterval(pollIntervalId); pollIntervalId = null;
+                                showError(data.error || 'Bilinmeyen bir analiz hatası oluştu.');
+                                resetUI();
+                                break;
+                            case 'fetching':
+                            case 'analyzing':
+                            case 'pending':
+                                // Update status message
+                                loadingStatus.textContent = `Durum: ${data.status}... (${data.progress ?? 0}%)`;
+                                // Ensure loading indicator stays visible
+                                loadingIndicator.style.display = 'block';
+                                progressBarContainer.style.display = 'block';
+                                break; // Continue polling
+                            default:
+                                console.warn("Bilinmeyen görev durumu:", data.status);
+                                // Optionally treat as error or continue polling carefully
+                                break;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Polling error:', error);
+                        clearInterval(pollIntervalId); pollIntervalId = null;
+                        showError(`Sonuçlar alınırken hata oluştu: ${error.message}`);
+                        resetUI();
+                    });
+                }, 3000); // Poll every 3 seconds
+            }
+
+            // --- Event Listener for Form Submission ---
+            if (analysisForm) {
+                analysisForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    clearPreviousState(); // Clear previous results/errors
+
+                    // Disable button and show loading state
+                    submitButton.disabled = true;
+                    submitButton.textContent = 'Analiz Başlatılıyor...';
+                    loadingStatus.textContent = 'Analiz başlatılıyor...'; // Initial status
+                    loadingIndicator.style.display = 'block';
+                    progressBarContainer.style.display = 'block';
+                    progressBar.style.width = '0%';
+                    progressBar.textContent = '0%';
+
+                    const formData = new FormData(analysisForm);
+
+                    fetch('/', {
+                        method: 'POST',
+                        body: new URLSearchParams(formData) // Send as form-urlencoded
+                    })
+                    .then(response => {
+                        // Check for non-2xx status codes first
+                        if (!response.ok) {
+                            // Attempt to parse error from JSON response body
+                            return response.json().catch(() => null) // Handle cases where body isn't JSON
+                                .then(errData => {
+                                    // Construct error message
+                                    const errorMsg = errData?.error || `Sunucu hatası (${response.status})`;
+                                    throw new Error(errorMsg);
+                                });
+                        }
+                        return response.json(); // Parse the JSON body on success
+                    })
+                    .then(data => {
+                         // Successfully received JSON response
+                        if (data && data.task_id) {
+                            currentTaskId = data.task_id;
+                            console.log('Analysis started. Task ID:', currentTaskId);
+                            loadingStatus.textContent = 'Analiz görevi başlatıldı, yorumlar alınıyor...';
+                            pollResults(currentTaskId); // Start polling
+                        } else {
+                            // Handle case where response is OK but task_id is missing
+                            throw new Error("Analiz görevi ID'si sunucudan alınamadı.");
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Form submission error:', error);
+                        showError(`Analiz başlatılırken hata oluştu: ${error.message}`);
+                        resetUI(); // Re-enable button etc. on error
+                    });
+                });
+            } else {
+                console.error("Hata: Analiz formu (analysisForm) bulunamadı!");
+            }
+
+            // NO page load/reload logic needed here anymore
+
+        }); // End of DOMContentLoaded listener
     </script>
 </body>
 </html>
