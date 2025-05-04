@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube Yorum Analizi</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        h1 { color: #ff0000; text-align: center; }
+        .form-container { background: #f9f9f9; padding: 20px; border-radius: 8px; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input[type="text"] { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
+        button {
+            background: #ff0000; color: white; border: none;
+            padding: 12px 20px; margin-top: 20px; cursor: pointer;
+            font-size: 16px; border-radius: 4px; width: 100%;
+        }
+        .results { margin-top: 30px; padding: 20px; background: #f0f0f0; border-radius: 8px; display: none; }
+        .loading { text-align: center; margin: 20px 0; display: none; }
+        .error { color: red; margin-top: 20px; }
+        .progress-bar {
+            height: 20px; background: #e0e0e0; border-radius: 10px;
+            margin-top: 20px; overflow: hidden;
+        }
+        .progress {
+            height: 100%; background: #ff0000; width: 0%;
+            transition: width 0.3s; text-align: center; color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>YouTube Yorum Analiz Sistemi</h1>
+
+    <div class="form-container">
+        <form id="analysisForm" method="POST">
+            <label for="api_key">YouTube API Key:</label>
+            <input type="text" id="api_key" name="api_key" required
+                   placeholder="AIzaSyD... (YouTube Data API v3 anahtarınız)">
+
+            <label for="youtube_url">YouTube Video URL:</label>
+            <input type="text" id="youtube_url" name="youtube_url" required
+                   placeholder="https://www.youtube.com/watch?v=...">
+
+            <button type="submit">Analiz Başlat</button>
+        </form>
+    </div>
+
+    <div class="loading" id="loadingIndicator">
+        <p>Yorumlar analiz ediliyor, lütfen bekleyin...</p>
+        <div class="progress-bar">
+            <div class="progress" id="progressBar">0%</div>
+        </div>
+    </div>
+
+    <div class="results" id="resultsContainer">
+        <h2>Analiz Sonuçları</h2>
+        <div id="resultsContent"></div>
+    </div>
+
+    <div class="error" id="errorContainer"></div>
+
+    <script>
+        document.getElementById('analysisForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Formu göster ve yükleme göstergesini aç
+            document.getElementById('loadingIndicator').style.display = 'block';
+            document.getElementById('resultsContainer').style.display = 'none';
+            document.getElementById('errorContainer').textContent = '';
+
+            // Form verilerini gönder
+            fetch('/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams(new FormData(document.getElementById('analysisForm')))
+            })
+            .then(response => {
+                // Analiz başladı, sonuçları kontrol etmeye başla
+                checkResults();
+            })
+            .catch(error => {
+                document.getElementById('errorContainer').textContent = 'Hata oluştu: ' + error;
+                document.getElementById('loadingIndicator').style.display = 'none';
+            });
+        });
+
+        function checkResults() {
+            // Sonuçları kontrol et
+            fetch('/results')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    // Hata durumu
+                    document.getElementById('errorContainer').textContent = data.error;
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                } else if (data.status === 'completed') {
+                    // Analiz tamamlandı
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                    document.getElementById('resultsContainer').style.display = 'block';
+
+                    // Sonuçları göster
+                    const resultsContent = document.getElementById('resultsContent');
+                    resultsContent.innerHTML = `
+                        <p><strong>Analiz Edilen Yorum Sayısı:</strong> ${data.total_comments}</p>
+                        <p><strong>Olumlu Yorumlar:</strong> ${data.positive} (${Math.round(data.positive/data.total_comments*100)}%)</p>
+                        <p><strong>Olumsuz Yorumlar:</strong> ${data.negative} (${Math.round(data.negative/data.total_comments*100)}%)</p>
+                        <p><strong>Nötr Yorumlar:</strong> ${data.neutral} (${Math.round(data.neutral/data.total_comments*100)}%)</p>
+                        <h3>${data.verdict}</h3>
+                    `;
+                } else {
+                    // Analiz devam ediyor, ilerlemeyi güncelle
+                    const progress = document.getElementById('progressBar');
+                    const currentWidth = parseInt(progress.style.width) || 0;
+                    const newWidth = Math.min(currentWidth + 10, 90);
+                    progress.style.width = newWidth + '%';
+                    progress.textContent = newWidth + '%';
+
+                    // 2 saniye sonra tekrar kontrol et
+                    setTimeout(checkResults, 2000);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
