@@ -1,12 +1,17 @@
 import uuid
 from flask import Flask, render_template, request, jsonify # Import jsonify
 import pandas as pd
+import numpy as np
 import re
 import nltk
 from nltk.corpus import stopwords
+import matplotlib.pyplot as plt
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.metrics import classification_report
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import Normalizer
+from imblearn.over_sampling import SMOTE
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError # Import HttpError for specific API errors
 import threading
@@ -24,9 +29,9 @@ analysis_tasks = {}
 data_lock = threading.Lock() # Lock for thread-safe access to analysis_tasks
 
 # Model components (loaded once)
-vectorizer = None
-knn = None
-normalizer = None
+vectorizer = TfidfVectorizer
+knn = KNeighborsClassifier
+normalizer = Normalizer
 
 # --- Preprocessing Function (Define Once) ---
 # Download stopwords once during initialization
@@ -39,8 +44,7 @@ except nltk.downloader.DownloadError:
         nltk.download('stopwords', quiet=False) # Set quiet=False to see download status/errors
     except Exception as download_error:
          logging.critical(f"FATAL: Failed to download NLTK stopwords: {download_error}", exc_info=True)
-         # Depending on requirements, you might want to exit the app here
-         # raise SystemExit("NLTK stopwords download failed.") from download_error
+         raise SystemExit("NLTK stopwords download failed.") from download_error
 stop_words_turkish = stopwords.words('turkish')
 
 def preprocess_text(text):
@@ -57,14 +61,55 @@ def preprocess_text(text):
         logging.error(f"Error preprocessing text: '{str(text)[:50]}...' - {e}")
         return "" # Return empty string on error
 
+def elbow(df):
+    """Elbow method to find best K parameter"""
+    X_test = df['temiz_yorum']
+    y = df['sentiment']
+
+    vectorizer = TfidfVectorizer(max_features=500 if len(df) > 100 else 100)
+    X = vectorizer.fit_transform(X_test)
+
+    smote = SMOTE(random_state=42)
+    X_res, y_res = smote.fit_resample(X, y)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_res, y_res, test_size=0.2, random_state=42, stratify=y_res
+    )
+
+    normalizer = Normalizer()
+    X_train_norm = normalizer.fit_transform(X_train)
+    X_test_norm = normalizer.transform(X_test)
+
+    wcss = []
+
+    for n_neighbors in range(1, 50):
+        knn = KNeighborsClassifier(n_neighbors=n_neighbors, weights='distance', metric='cosine')
+        knn.fit(X_train_norm, y_train)
+        pred_i = knn.predict(X_test_norm)
+        wcss.append(np.mean(pred_i != y_test))
+        # wcss.append(np.mean(cross_val_score(knn, X_res, y_res, cv=5, scoring="f1_macro")))
+
+    print('Test')
+    plt.figure(figsize=(10,6))
+    plt.plot(range(1, 50), wcss)
+    plt.xlabel('K')
+    plt.ylabel('Error Rate')
+    plt.show()
+
+
 # --- Model Loading ---
 def load_model():
-    """Loads the dataset, preprocesses it, and trains the sentiment model."""
+    """Loads the dataset, preprocesses it, and calls train_model"""
     global vectorizer, knn, normalizer
     logging.info("Loading model...")
     try:
-        # IMPORTANT: Replace 'sample_comments.csv' with a much larger, representative dataset.
-        df = pd.read_csv('sample_comments.csv')
+        df = pd.read_csv(
+            "sample_comments.csv",
+            sep=r',',
+            engine='python',
+            encoding='utf-8',
+            header=0
+        )
         if df.empty or 'comment' not in df.columns or 'sentiment' not in df.columns:
              logging.error("CSV file is empty or missing required columns ('comment', 'sentiment').")
              raise ValueError("Invalid training data format.")
@@ -86,12 +131,24 @@ def load_model():
 
         logging.info(f"Training data shape after preprocessing: {df.shape}")
 
-        vectorizer = TfidfVectorizer(max_features=500 if len(df) > 100 else 100)
-        X = vectorizer.fit_transform(df['temiz_yorum'])
+        # elbow(df)
+
+        X_test = df['temiz_yorum']
         y = df['sentiment']
 
+        vectorizer = TfidfVectorizer(max_features=500 if len(df) > 100 else 100)
+        X = vectorizer.fit_transform(X_test)
+
+        smote = SMOTE(random_state=42)
+        X_res, y_res = smote.fit_resample(X, y)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_res, y_res, test_size=0.2, random_state=42, stratify=y_res
+        )
+
         normalizer = Normalizer()
-        X_normalized = normalizer.fit_transform(X)
+        X_train_norm = normalizer.fit_transform(X_train)
+        X_test_norm = normalizer.transform(X_test)
 
         n_neighbors = min(5, len(df) -1) if len(df) > 1 else 1
         if n_neighbors < 1:
@@ -99,7 +156,17 @@ def load_model():
             raise ValueError("Not enough training samples for KNN.")
 
         knn = KNeighborsClassifier(n_neighbors=n_neighbors, weights='distance', metric='cosine')
-        knn.fit(X_normalized, y)
+        knn.fit(X_train_norm, y_train)
+
+        scores = cross_val_score(knn, X_res, y_res, cv=5, scoring="f1_macro")
+        print("\nOrtalama F1 skoru:", scores.mean())
+
+        print("\nEğitim verilerinin doğruluk:")
+        print(classification_report(y_train, knn.predict(X_train_norm)))
+
+        print("\nTest verilerinin doğruluk:")
+        print(classification_report(y_test, knn.predict(X_test_norm)))
+
         logging.info("Model loaded successfully.")
 
     except FileNotFoundError:

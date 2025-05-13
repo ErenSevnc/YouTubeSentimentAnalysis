@@ -7,3 +7,5 @@ google-auth-oauthlib # Often needed with google client libraries
 nltk==3.8.1
 requests # Good practice to include if indirectly used or for future needs
 uuid # Standard library, but good to note dependency
+matplotlib==3.10.3
+imbalanced_learn==0.13.0
