@@ -1,5 +1,5 @@
 import uuid
-from flask import Flask, render_template, request, jsonify # Import jsonify
+from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import numpy as np
 import re
@@ -13,9 +13,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import Normalizer
 from imblearn.over_sampling import SMOTE
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError # Import HttpError for specific API errors
+from googleapiclient.errors import HttpError
 import threading
-import logging # Add logging
+import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,9 +29,10 @@ analysis_tasks = {}
 data_lock = threading.Lock() # Lock for thread-safe access to analysis_tasks
 
 # Model components (loaded once)
-vectorizer = TfidfVectorizer
-knn = KNeighborsClassifier
-normalizer = Normalizer
+vectorizer = None
+knn = None
+normalizer = None
+stop_words_turkish = None
 
 # --- Preprocessing Function (Define Once) ---
 # Download stopwords once during initialization
@@ -49,6 +50,7 @@ stop_words_turkish = stopwords.words('turkish')
 
 def preprocess_text(text):
     """Cleans and preprocesses text data."""
+    global stop_words_turkish
     try:
         text = str(text).lower()
         text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
@@ -63,7 +65,7 @@ def preprocess_text(text):
 
 def elbow(df):
     """Elbow method to find best K parameter"""
-    X_test = df['temiz_yorum']
+    X_test = df['clean_comment']
     y = df['sentiment']
 
     vectorizer = TfidfVectorizer(max_features=500 if len(df) > 100 else 100)
@@ -80,18 +82,19 @@ def elbow(df):
     X_train_norm = normalizer.fit_transform(X_train)
     X_test_norm = normalizer.transform(X_test)
 
-    wcss = []
+    err_rate = []
+    acc_rate = []
 
     for n_neighbors in range(1, 50):
         knn = KNeighborsClassifier(n_neighbors=n_neighbors, weights='distance', metric='cosine')
         knn.fit(X_train_norm, y_train)
         pred_i = knn.predict(X_test_norm)
-        wcss.append(np.mean(pred_i != y_test))
-        # wcss.append(np.mean(cross_val_score(knn, X_res, y_res, cv=5, scoring="f1_macro")))
+        err_rate.append(np.mean(pred_i != y_test))
+        acc_rate.append(np.mean(cross_val_score(knn, X_res, y_res, cv=5, scoring="f1_macro")))
 
     print('Test')
     plt.figure(figsize=(10,6))
-    plt.plot(range(1, 50), wcss)
+    plt.plot(range(1, 50), err_rate, acc_rate)
     plt.xlabel('K')
     plt.ylabel('Error Rate')
     plt.show()
@@ -118,12 +121,13 @@ def load_model():
         df['comment'] = df['comment'].astype(str) # Ensure comments are strings
 
         logging.info(f"Training data shape before preprocessing: {df.shape}")
+
         if df.empty:
              logging.error("No valid comments found in the training data after cleaning.")
              raise ValueError("No valid training data.")
 
-        df['temiz_yorum'] = df['comment'].apply(preprocess_text)
-        df = df[df['temiz_yorum'].str.strip().astype(bool)] # Remove rows empty after processing
+        df['clean_comment'] = df['comment'].apply(preprocess_text)
+        df = df[df['clean_comment'].str.strip().astype(bool)] # Remove rows empty after processing
 
         if df.empty:
              logging.error("No valid comments left after preprocessing training data.")
@@ -131,9 +135,9 @@ def load_model():
 
         logging.info(f"Training data shape after preprocessing: {df.shape}")
 
-        # elbow(df)
+        # elbow(df.copy())
 
-        X_test = df['temiz_yorum']
+        X_test = df['clean_comment']
         y = df['sentiment']
 
         vectorizer = TfidfVectorizer(max_features=500 if len(df) > 100 else 100)
@@ -159,7 +163,7 @@ def load_model():
         knn.fit(X_train_norm, y_train)
 
         scores = cross_val_score(knn, X_res, y_res, cv=5, scoring="f1_macro")
-        print("\nOrtalama F1 skoru:", scores.mean())
+        print("\nOrtalama çapraz doğruluk oranı (F1-Macro):", scores.mean())
 
         print("\nEğitim verilerinin doğruluk:")
         print(classification_report(y_train, knn.predict(X_train_norm)))
@@ -183,6 +187,13 @@ def load_model():
 def fetch_and_analyze_comments_task(task_id, api_key, video_url):
     """Fetches comments, analyzes sentiment, and updates the task status."""
     global analysis_tasks, vectorizer, knn, normalizer # Need globals here
+
+    # Check if models are loaded
+    if not all([vectorizer, knn, normalizer]):
+        logging.error(f"[{task_id}] Models not loaded. Aborting analysis.")
+        with data_lock:
+            analysis_tasks[task_id] = {'status': 'error', 'error': 'Models not available on server.', 'progress': 100}
+        return
 
     # Initial status
     with data_lock:
@@ -396,4 +407,4 @@ with app.app_context():
 if __name__ == '__main__':
     # Set debug=False for production environments
     # Use host='0.0.0.0' to make accessible on your network if needed
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=False, host='127.0.0.1', port=5000)
